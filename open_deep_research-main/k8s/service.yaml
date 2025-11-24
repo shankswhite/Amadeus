@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-deep-research-service
+  namespace: deep-research
+  labels:
+    app: open-deep-research
+spec:
+  type: ClusterIP  # 内部访问
+  selector:
+    app: open-deep-research
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8123
+    targetPort: 8123
+  sessionAffinity: None
+

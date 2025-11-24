@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-deep-research
+  namespace: deep-research
+  labels:
+    app: open-deep-research
+    version: v1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: open-deep-research
+  template:
+    metadata:
+      labels:
+        app: open-deep-research
+        version: v1.0
+    spec:
+      containers:
+      - name: open-deep-research
+        image: shankswhite/open-deep-research:v1.10-rate-limit
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8123
+          name: http
+          protocol: TCP
+        
+        # 环境变量 - 从 Secret 和 ConfigMap 注入
+        env:
+        # OpenAI API Key (来自 Secret)
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai-api-key
+              key: OPENAI_API_KEY
+        
+        # Supabase 配置 (来自 Secret)
+        - name: SUPABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: supabase-config
+              key: SUPABASE_URL
+        - name: SUPABASE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: supabase-config
+              key: SUPABASE_KEY
+        
+        # 其他配置 (来自 ConfigMap)
+        envFrom:
+        - configMapRef:
+            name: open-deep-research-config
+        
+        # 资源限制
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        
+        # 健康检查 (使用根路径)
+        livenessProbe:
+          tcpSocket:
+            port: 8123
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          tcpSocket:
+            port: 8123
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # 挂载 langgraph.json 配置文件
+        volumeMounts:
+        - name: langgraph-config
+          mountPath: /app/langgraph.json
+          subPath: langgraph.json
+      
+      # Volume 配置
+      volumes:
+      - name: langgraph-config
+        configMap:
+          name: langgraph-config
+      
+      # 重启策略
+      restartPolicy: Always
+

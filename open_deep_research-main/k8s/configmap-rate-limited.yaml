@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-deep-research-config
+  namespace: deep-research
+data:
+  # ============ Perplexica配置 ============
+  USE_PERPLEXICA: "true"
+  PERPLEXICA_API_URL: "http://perplexica-service.default.svc.cluster.local/api/tavily"
+  PERPLEXICA_EXCLUDE_DOMAINS: "pinterest.com,instagram.com,tiktok.com"
+  PERPLEXICA_INCLUDE_ANSWER: "true"
+  PERPLEXICA_INCLUDE_IMAGES: "true"
+  PERPLEXICA_LANGUAGE: "en"
+  
+  # ============ 频率限制（避免机器人检测）============
+  MAX_CONCURRENT_RESEARCH_UNITS: "2"        # 降低并发：5→2
+  SEARCH_REQUEST_DELAY: "15.0"              # 增加延迟：5→15秒
+  SEARCH_REQUEST_DELAY_RANDOM: "5.0"        # 随机延迟：±5秒
+  MAX_RESULTS_PER_QUERY: "3"                # 减少结果：5→3
+  MAX_RESEARCHER_ITERATIONS: "4"            # 减少迭代：6→4
+  MAX_REACT_TOOL_CALLS: "8"                 # 减少调用：10→8
+  
+  # ============ 其他优化 ============
+  CRAWL4AI_CONTENT_THRESHOLD: "0.5"         # 提高内容质量阈值
+  SEARCH_LOG_LEVEL: "INFO"                  # 日志级别

@@ -1,0 +1,193 @@
+import os
+import asyncio
+import jwt
+from langgraph_sdk import Auth
+from langgraph_sdk.auth.types import StudioUser
+from supabase import create_client, Client
+from typing import Optional, Any
+
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_KEY")
+jwt_secret = os.environ.get("JWT_SECRET", "Q3Y7qw3Mi729spjz+EA/VrsVLObqbWTwhXzBnTclmuyCB1BhoAQTzxo5JLuyNjNzovXGSUgQUJ8V+8Ap7Zm/Ow==")
+supabase: Optional[Client] = None
+
+if supabase_url and supabase_key:
+    supabase = create_client(supabase_url, supabase_key)
+
+# The "Auth" object is a container that LangGraph will use to mark our authentication function
+auth = Auth()
+
+
+# The `authenticate` decorator tells LangGraph to call this function as middleware
+# for every request. This will determine whether the request is allowed or not
+@auth.authenticate
+async def get_current_user(authorization: str | None) -> Auth.types.MinimalUserDict:
+    """Check if the user's JWT token is valid by verifying JWT signature."""
+
+    # Ensure we have authorization header
+    if not authorization:
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail="Authorization header missing"
+        )
+
+    # Parse the authorization header
+    try:
+        scheme, token = authorization.split()
+        assert scheme.lower() == "bearer"
+    except (ValueError, AssertionError):
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail="Invalid authorization header format"
+        )
+
+    try:
+        # Verify JWT token by checking signature with JWT_SECRET
+        # This works for both service_role tokens and user tokens
+        payload = jwt.decode(
+            token,
+            jwt_secret,
+            algorithms=["HS256"],
+            options={
+                "verify_exp": True,
+                "verify_iat": False  # 禁用 iat 验证（避免时钟不同步问题）
+            }
+        )
+        
+        # Get role from token
+        role = payload.get("role")
+        
+        # For service_role tokens, use a fixed identity
+        if role == "service_role":
+            return {
+                "identity": "service_role",
+            }
+        
+        # For user tokens, try to get user info from Supabase
+        if supabase and role in ["anon", "authenticated"]:
+            try:
+                async def verify_token() -> dict[str, Any]:
+                    response = await asyncio.to_thread(supabase.auth.get_user, token)
+                    return response
+
+                response = await verify_token()
+                user = response.user
+
+                if not user:
+                    raise Auth.exceptions.HTTPException(
+                        status_code=401, detail="Invalid token or user not found"
+                    )
+
+                return {
+                    "identity": user.id,
+                }
+            except Exception:
+                # If Supabase call fails, fall back to using sub from JWT
+                user_id = payload.get("sub", "unknown")
+                return {
+                    "identity": user_id,
+                }
+        
+        # Fallback: use sub claim as identity
+        user_id = payload.get("sub", payload.get("role", "unknown"))
+        return {
+            "identity": user_id,
+        }
+        
+    except jwt.ExpiredSignatureError:
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail="Token has expired"
+        )
+    except jwt.InvalidTokenError as e:
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail=f"Invalid token: {str(e)}"
+        )
+    except Exception as e:
+        raise Auth.exceptions.HTTPException(
+            status_code=401, detail=f"Authentication error: {str(e)}"
+        )
+
+
+@auth.on.threads.create
+@auth.on.threads.create_run
+async def on_thread_create(
+    ctx: Auth.types.AuthContext,
+    value: Auth.types.on.threads.create.value,
+):
+    """Add owner when creating threads.
+
+    This handler runs when creating new threads and does two things:
+    1. Sets metadata on the thread being created to track ownership
+    2. Returns a filter that ensures only the creator can access it
+    """
+
+    if isinstance(ctx.user, StudioUser):
+        return
+
+    # Add owner metadata to the thread being created
+    # This metadata is stored with the thread and persists
+    metadata = value.setdefault("metadata", {})
+    metadata["owner"] = ctx.user.identity
+
+
+@auth.on.threads.read
+@auth.on.threads.delete
+@auth.on.threads.update
+@auth.on.threads.search
+async def on_thread_read(
+    ctx: Auth.types.AuthContext,
+    value: Auth.types.on.threads.read.value,
+):
+    """Only let users read their own threads.
+
+    This handler runs on read operations. We don't need to set
+    metadata since the thread already exists - we just need to
+    return a filter to ensure users can only see their own threads.
+    """
+    if isinstance(ctx.user, StudioUser):
+        return
+
+    return {"owner": ctx.user.identity}
+
+
+@auth.on.assistants.create
+async def on_assistants_create(
+    ctx: Auth.types.AuthContext,
+    value: Auth.types.on.assistants.create.value,
+):
+    if isinstance(ctx.user, StudioUser):
+        return
+
+    # Add owner metadata to the assistant being created
+    # This metadata is stored with the assistant and persists
+    metadata = value.setdefault("metadata", {})
+    metadata["owner"] = ctx.user.identity
+
+
+@auth.on.assistants.read
+@auth.on.assistants.delete
+@auth.on.assistants.update
+@auth.on.assistants.search
+async def on_assistants_read(
+    ctx: Auth.types.AuthContext,
+    value: Auth.types.on.assistants.read.value,
+):
+    """Only let users read their own assistants.
+
+    This handler runs on read operations. We don't need to set
+    metadata since the assistant already exists - we just need to
+    return a filter to ensure users can only see their own assistants.
+    """
+
+    if isinstance(ctx.user, StudioUser):
+        return
+
+    return {"owner": ctx.user.identity}
+
+
+@auth.on.store()
+async def authorize_store(ctx: Auth.types.AuthContext, value: dict):
+    if isinstance(ctx.user, StudioUser):
+        return
+
+    # The "namespace" field for each store item is a tuple you can think of as the directory of an item.
+    namespace: tuple = value["namespace"]
+    assert namespace[0] == ctx.user.identity, "Not authorized"
