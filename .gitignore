@@ -96,3 +96,6 @@ pyproject.toml.backup*
 # Large demo/asset files
 **/.assets/demo.gif
 **/demo.gif
+
+# Deployment guides that may contain secrets
+**/QUICK_DEPLOY.md

@@ -1,4 +1,4 @@
-# Open Deep Research - Production Dockerfile
+# Open Deep Research - Production Dockerfile with LangGraph 0.5.x
 FROM python:3.11-slim
 
 # Set working directory
@@ -43,16 +43,17 @@ COPY langgraph.json ./
 # Create empty tests directory (required by setup tools)
 RUN mkdir -p tests && touch tests/__init__.py
 
-# Install Python dependencies
-RUN uv pip install --system .
-
-# 🔧 FIXED: Copy修复后的文件（必须在pip install之后，避免被覆盖）
-COPY searcrawl_client.py ./src/open_deep_research/
-COPY utils_fixed.py ./src/open_deep_research/utils.py
+# Install Python dependencies (increased timeout for slow networks)
+ENV UV_HTTP_TIMEOUT=120
+RUN uv pip install --system . && \
+    uv pip install --system "langgraph-cli>=0.3.1" "langgraph-checkpoint-postgres>=2.0.0"
 
 # Install Playwright browsers (only Chromium for crawling)
 RUN playwright install chromium
 RUN playwright install-deps chromium
+
+# Install langchain-openai for Azure support
+RUN uv pip install --system langchain-openai
 
 # Expose LangGraph server port
 EXPOSE 8123
@@ -62,5 +63,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8123/health || exit 1
 
 # Start LangGraph server
-CMD ["langgraph", "dev", "--host", "0.0.0.0", "--port", "8123"]
-
+CMD ["langgraph", "dev", "--host", "0.0.0.0", "--port", "8123", "--no-browser"]

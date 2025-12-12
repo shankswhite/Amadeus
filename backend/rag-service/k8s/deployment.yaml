@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+  namespace: deep-research
+  labels:
+    app: rag-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-service
+  template:
+    metadata:
+      labels:
+        app: rag-service
+    spec:
+      containers:
+      - name: rag-service
+        image: shankswhite/rag-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # Azure OpenAI
+        - name: AZURE_OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: rag-secrets
+              key: azure-openai-api-key
+        - name: AZURE_OPENAI_ENDPOINT
+          value: "https://amadeus-ai-analyst.cognitiveservices.azure.com/"
+        - name: AZURE_OPENAI_DEPLOYMENT
+          value: "gpt-4o"
+        - name: AZURE_OPENAI_API_VERSION
+          value: "2024-12-01-preview"
+        # Azure AI (Cohere Embedding)
+        - name: AZURE_AI_ENDPOINT
+          value: "https://amadeus-ai-analyst.services.ai.azure.com/openai/v1/"
+        - name: AZURE_AI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: rag-secrets
+              key: azure-ai-api-key
+        - name: EMBEDDING_MODEL
+          value: "Cohere-embed-v3-english"
+        - name: EMBEDDING_DIMENSION
+          value: "1024"
+        # PostgreSQL (Supabase)
+        - name: POSTGRES_HOST
+          value: "10.0.1.4"  # Supabase VM internal IP
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_USER
+          value: "supabase_admin"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rag-secrets
+              key: postgres-password
+        - name: POSTGRES_DB
+          value: "postgres"
+        # Runtime
+        - name: IN_KUBERNETES
+          value: "true"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-service
+  namespace: deep-research
+  labels:
+    app: rag-service
+spec:
+  type: ClusterIP
+  selector:
+    app: rag-service
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+
+
