@@ -1,6 +1,7 @@
 # Amadeus
 
 Enterprise-grade AI Research Platform powered by Open Deep Research (ODR) and Perplexica.
+[Check it here](https://aiverse.chat)
 
 ## 🎯 Overview
 
